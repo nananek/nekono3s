@@ -1,9 +1,11 @@
 """
 Filesystem storage with xattr metadata.
 
-XAttr format is compatible with jclouds filesystem-nio2 (used by s3proxy):
-  - System metadata: user.content-type, user.content-md5 (raw 16 bytes), etc.
-  - User metadata:   user.{key}  (s3proxy strips "x-amz-meta-" before storing)
+XAttr key prefix modes:
+  - Native (default):  user.content-type, user.{key}
+  - jclouds compat:    user.user.content-type, user.user.{key}
+    (s3proxy / jclouds filesystem-nio2 writes "user.X" which the OS stores
+     as "user.user.X" in the user namespace)
 
 Directory layout:
   {storage_path}/{bucket}/{key}
@@ -17,26 +19,39 @@ from pathlib import Path
 from typing import Optional
 
 # ---------------------------------------------------------------------------
-# XAttr key constants  (jclouds filesystem-nio2 compatible)
+# XAttr key helpers
 # ---------------------------------------------------------------------------
 
+# Suffix keys (without namespace prefix)
+_XATTR_SUFFIXES = {
+    "content-type",
+    "content-md5",
+    "content-disposition",
+    "content-encoding",
+    "content-language",
+    "expires",
+    "cache-control",
+}
+
+# Default prefix (native mode)
+XATTR_PREFIX_NATIVE = "user."
+# jclouds compat prefix (s3proxy stores "user.X" → OS sees "user.user.X")
+XATTR_PREFIX_JCLOUDS = "user.user."
+
+
+def xattr_keys(prefix: str = XATTR_PREFIX_NATIVE) -> dict[str, str]:
+    """Return a dict mapping suffix → full xattr key for the given prefix."""
+    return {s: f"{prefix}{s}" for s in _XATTR_SUFFIXES}
+
+
+# Backwards-compatible module-level constants (native prefix)
 XATTR_CONTENT_TYPE = "user.content-type"
-XATTR_CONTENT_MD5 = "user.content-md5"          # raw 16 bytes (not base64)
+XATTR_CONTENT_MD5 = "user.content-md5"
 XATTR_CONTENT_DISPOSITION = "user.content-disposition"
 XATTR_CONTENT_ENCODING = "user.content-encoding"
 XATTR_CONTENT_LANGUAGE = "user.content-language"
 XATTR_EXPIRES = "user.expires"
 XATTR_CACHE_CONTROL = "user.cache-control"
-
-_SYSTEM_XATTRS = {
-    XATTR_CONTENT_TYPE,
-    XATTR_CONTENT_MD5,
-    XATTR_CONTENT_DISPOSITION,
-    XATTR_CONTENT_ENCODING,
-    XATTR_CONTENT_LANGUAGE,
-    XATTR_EXPIRES,
-    XATTR_CACHE_CONTROL,
-}
 
 
 # ---------------------------------------------------------------------------
@@ -68,9 +83,12 @@ class ObjectMetadata:
 # ---------------------------------------------------------------------------
 
 class FilesystemStorage:
-    def __init__(self, base_path: str) -> None:
+    def __init__(self, base_path: str, xattr_prefix: str = XATTR_PREFIX_NATIVE) -> None:
         self.base = Path(base_path)
         self.base.mkdir(parents=True, exist_ok=True)
+        self._xattr_prefix = xattr_prefix
+        self._xkeys = xattr_keys(xattr_prefix)
+        self._system_xattrs = set(self._xkeys.values())
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -108,52 +126,51 @@ class FilesystemStorage:
         except OSError:
             return meta
 
+        k = self._xkeys
         for attr in attrs:
             try:
                 raw = os.getxattr(str(path), attr)
             except OSError:
                 continue
 
-            match attr:
-                case _ if attr == XATTR_CONTENT_TYPE:
-                    meta.content_type = raw.decode("utf-8")
-                case _ if attr == XATTR_CONTENT_MD5:
-                    meta.content_md5 = bytes(raw)
-                case _ if attr == XATTR_CONTENT_DISPOSITION:
-                    meta.content_disposition = raw.decode("utf-8")
-                case _ if attr == XATTR_CONTENT_ENCODING:
-                    meta.content_encoding = raw.decode("utf-8")
-                case _ if attr == XATTR_CONTENT_LANGUAGE:
-                    meta.content_language = raw.decode("utf-8")
-                case _ if attr == XATTR_EXPIRES:
-                    meta.expires = raw.decode("utf-8")
-                case _ if attr == XATTR_CACHE_CONTROL:
-                    meta.cache_control = raw.decode("utf-8")
-                case _:
-                    # User metadata: xattr "user.foo" → key "foo"
-                    if attr.startswith("user.") and attr not in _SYSTEM_XATTRS:
-                        meta.user_metadata[attr[len("user."):]] = raw.decode("utf-8")
+            if attr == k["content-type"]:
+                meta.content_type = raw.decode("utf-8")
+            elif attr == k["content-md5"]:
+                meta.content_md5 = bytes(raw)
+            elif attr == k["content-disposition"]:
+                meta.content_disposition = raw.decode("utf-8")
+            elif attr == k["content-encoding"]:
+                meta.content_encoding = raw.decode("utf-8")
+            elif attr == k["content-language"]:
+                meta.content_language = raw.decode("utf-8")
+            elif attr == k["expires"]:
+                meta.expires = raw.decode("utf-8")
+            elif attr == k["cache-control"]:
+                meta.cache_control = raw.decode("utf-8")
+            elif attr.startswith(self._xattr_prefix) and attr not in self._system_xattrs:
+                meta.user_metadata[attr[len(self._xattr_prefix):]] = raw.decode("utf-8")
 
         return meta
 
     def _write_metadata(self, path: Path, meta: ObjectMetadata) -> None:
         p = str(path)
+        k = self._xkeys
 
         def _set_str(xattr_name: str, value: Optional[str]) -> None:
             if value is not None:
                 os.setxattr(p, xattr_name, value.encode("utf-8"))
 
-        _set_str(XATTR_CONTENT_TYPE, meta.content_type)
+        _set_str(k["content-type"], meta.content_type)
         if meta.content_md5 is not None:
-            os.setxattr(p, XATTR_CONTENT_MD5, meta.content_md5)
-        _set_str(XATTR_CONTENT_DISPOSITION, meta.content_disposition)
-        _set_str(XATTR_CONTENT_ENCODING, meta.content_encoding)
-        _set_str(XATTR_CONTENT_LANGUAGE, meta.content_language)
-        _set_str(XATTR_EXPIRES, meta.expires)
-        _set_str(XATTR_CACHE_CONTROL, meta.cache_control)
+            os.setxattr(p, k["content-md5"], meta.content_md5)
+        _set_str(k["content-disposition"], meta.content_disposition)
+        _set_str(k["content-encoding"], meta.content_encoding)
+        _set_str(k["content-language"], meta.content_language)
+        _set_str(k["expires"], meta.expires)
+        _set_str(k["cache-control"], meta.cache_control)
 
         for key, value in meta.user_metadata.items():
-            os.setxattr(p, f"user.{key}", value.encode("utf-8"))
+            os.setxattr(p, f"{self._xattr_prefix}{key}", value.encode("utf-8"))
 
     # ------------------------------------------------------------------
     # Bucket operations

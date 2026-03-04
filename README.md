@@ -55,6 +55,17 @@ All settings are configured via environment variables with the `S3_` prefix:
 | `S3_SECRET_ACCESS_KEY` | `minioadmin` | Secret key for authentication |
 | `S3_STORAGE_PATH` | `/data` | Path to store objects |
 | `S3_REGION` | `us-east-1` | Region name |
+| `S3_XATTR_JCLOUDS_COMPAT` | `false` | Use s3proxy/jclouds xattr format (`user.user.*`) |
+
+### Migrating from s3proxy
+
+If you are migrating from s3proxy (jclouds filesystem-nio2), enable jclouds-compatible xattr format so nekono3s can read existing metadata:
+
+```bash
+S3_XATTR_JCLOUDS_COMPAT=true
+```
+
+s3proxy stores xattr keys as `user.user.content-type`, `user.user.content-md5`, etc. With this option enabled, nekono3s uses the same format. Back up xattr when copying files (`tar --xattrs --xattrs-include='*'` or `rsync -X`).
 
 ## Usage with AWS CLI
 

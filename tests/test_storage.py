@@ -12,8 +12,10 @@ import pytest
 from app.storage import (
     XATTR_CONTENT_MD5,
     XATTR_CONTENT_TYPE,
+    XATTR_PREFIX_JCLOUDS,
     FilesystemStorage,
     ObjectMetadata,
+    xattr_keys,
 )
 
 
@@ -299,3 +301,78 @@ def test_delete_cleans_empty_parent_dirs(storage):
     storage.delete_object("b", "deep/dir/file.txt")
     # 空になった親ディレクトリは削除される
     assert not (storage._bucket_path("b") / "deep").exists()
+
+
+# ---------------------------------------------------------------------------
+# jclouds compat モード (S3_XATTR_JCLOUDS_COMPAT=true)
+# xattr キーが user.user.* になる
+# ---------------------------------------------------------------------------
+
+@xattr_only
+def test_jclouds_xattr_prefix(storage_jclouds):
+    """jclouds compat モードでは xattr キーが user.user.* になる。"""
+    s = storage_jclouds
+    s.create_bucket("b")
+    s.put_object("b", "k", b"data", ObjectMetadata(content_type="text/plain"))
+    obj_path = s.get_object_path("b", "k")
+
+    attrs = os.listxattr(str(obj_path))
+    assert "user.user.content-type" in attrs
+    assert "user.user.content-md5" in attrs
+    # native キーは存在しない
+    assert "user.content-type" not in attrs
+
+
+@xattr_only
+def test_jclouds_system_metadata_roundtrip(storage_jclouds):
+    """jclouds compat モードでシステムメタデータが往復する。"""
+    s = storage_jclouds
+    s.create_bucket("b")
+    orig = ObjectMetadata(
+        content_type="image/webp",
+        content_disposition="inline",
+        cache_control="max-age=31536000, immutable",
+    )
+    s.put_object("b", "k", b"img", orig)
+    _, meta = s.head_object("b", "k")
+    assert meta.content_type == "image/webp"
+    assert meta.content_disposition == "inline"
+    assert meta.cache_control == "max-age=31536000, immutable"
+
+
+@xattr_only
+def test_jclouds_user_metadata_roundtrip(storage_jclouds):
+    """jclouds compat モードでユーザーメタデータが user.user.* に格納される。"""
+    s = storage_jclouds
+    s.create_bucket("b")
+    s.put_object("b", "k", b"x", ObjectMetadata(user_metadata={"foo": "bar"}))
+    obj_path = s.get_object_path("b", "k")
+
+    attrs = os.listxattr(str(obj_path))
+    assert "user.user.foo" in attrs
+    assert "user.foo" not in attrs
+
+    _, meta = s.head_object("b", "k")
+    assert meta.user_metadata == {"foo": "bar"}
+
+
+@xattr_only
+def test_jclouds_reads_s3proxy_written_xattr(storage_jclouds):
+    """s3proxy が書いた user.user.* xattr を正しく読める。"""
+    import hashlib
+    s = storage_jclouds
+    s.create_bucket("b")
+    p = s._object_path("b", "obj.bin")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    data = b"s3proxy-data"
+    p.write_bytes(data)
+
+    # s3proxy が書く形式: user.user.*
+    os.setxattr(str(p), "user.user.content-type", b"application/pdf")
+    os.setxattr(str(p), "user.user.content-md5", hashlib.md5(data).digest())
+    os.setxattr(str(p), "user.user.mykey", b"myvalue")
+
+    _, meta = s.head_object("b", "obj.bin")
+    assert meta.content_type == "application/pdf"
+    assert meta.content_md5 == hashlib.md5(data).digest()
+    assert meta.user_metadata == {"mykey": "myvalue"}

@@ -36,12 +36,18 @@ from fastapi.responses import StreamingResponse
 from app.auth import verify_request_auth
 from app.config import settings
 from app.multipart import MultipartManager
-from app.storage import FilesystemStorage, ObjectMetadata
+from app.storage import (
+    FilesystemStorage,
+    ObjectMetadata,
+    XATTR_PREFIX_JCLOUDS,
+    XATTR_PREFIX_NATIVE,
+)
 import app.xml_utils as xml
 
 app = FastAPI(title="s3-compat")
 
-storage = FilesystemStorage(settings.storage_path)
+_xattr_prefix = XATTR_PREFIX_JCLOUDS if settings.xattr_jclouds_compat else XATTR_PREFIX_NATIVE
+storage = FilesystemStorage(settings.storage_path, xattr_prefix=_xattr_prefix)
 multipart = MultipartManager(settings.storage_path + "/.multipart")
 
 _REQUEST_ID = "0000000000000000"

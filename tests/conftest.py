@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 from app.main import app
 from app.multipart import MultipartManager
-from app.storage import FilesystemStorage
+from app.storage import FilesystemStorage, XATTR_PREFIX_JCLOUDS
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +186,11 @@ class V4Signer:
 @pytest.fixture()
 def storage(tmp_path):
     return FilesystemStorage(str(tmp_path / "data"))
+
+
+@pytest.fixture()
+def storage_jclouds(tmp_path):
+    return FilesystemStorage(str(tmp_path / "data"), xattr_prefix=XATTR_PREFIX_JCLOUDS)
 
 
 @pytest.fixture()

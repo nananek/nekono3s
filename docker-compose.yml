@@ -11,6 +11,8 @@ services:
       S3_STORAGE_PATH: /data
       # リージョン（クライアント設定と合わせる）
       S3_REGION: us-east-1
+      # s3proxy (jclouds) からの移行時は true にする
+      # S3_XATTR_JCLOUDS_COMPAT: true
     volumes:
       - s3-data:/data
     restart: unless-stopped
