@@ -54,8 +54,11 @@ All settings are configured via environment variables with the `S3_` prefix:
 | `S3_ACCESS_KEY_ID` | `minioadmin` | Access key for authentication |
 | `S3_SECRET_ACCESS_KEY` | `minioadmin` | Secret key for authentication |
 | `S3_STORAGE_PATH` | `/data` | Path to store objects |
+| `S3_MULTIPART_PATH` | `/tmp/nekono3s-multipart` | Temp directory for multipart uploads |
 | `S3_REGION` | `us-east-1` | Region name |
 | `S3_XATTR_JCLOUDS_COMPAT` | `false` | Use s3proxy/jclouds xattr format (`user.user.*`) |
+
+The container runs as non-root user `s3` (UID 101, GID 101) by default, matching s3proxy's UID for seamless volume sharing.
 
 ### Migrating from s3proxy
 
