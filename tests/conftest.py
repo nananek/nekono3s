@@ -198,7 +198,7 @@ def client(tmp_path, monkeypatch):
     """パッチ済みストレージを持つ TestClient。"""
     data = str(tmp_path / "data")
     monkeypatch.setattr(main_module, "storage", FilesystemStorage(data))
-    monkeypatch.setattr(main_module, "multipart", MultipartManager(data + "/.multipart"))
+    monkeypatch.setattr(main_module, "multipart", MultipartManager(str(tmp_path / "multipart")))
     return TestClient(app, raise_server_exceptions=False)
 
 

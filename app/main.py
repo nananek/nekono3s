@@ -48,7 +48,7 @@ app = FastAPI(title="s3-compat")
 
 _xattr_prefix = XATTR_PREFIX_JCLOUDS if settings.xattr_jclouds_compat else XATTR_PREFIX_NATIVE
 storage = FilesystemStorage(settings.storage_path, xattr_prefix=_xattr_prefix)
-multipart = MultipartManager(settings.storage_path + "/.multipart")
+multipart = MultipartManager(settings.multipart_path)
 
 _REQUEST_ID = "0000000000000000"
 _XML_CT = "application/xml"
