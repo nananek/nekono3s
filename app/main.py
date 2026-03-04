@@ -32,6 +32,7 @@ from xml.etree import ElementTree as ET
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.auth import verify_request_auth
 from app.config import settings
@@ -138,18 +139,34 @@ async def _decode_request_stream(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Auth middleware
+# Auth middleware (raw ASGI to avoid BaseHTTPMiddleware consuming the body)
 # ---------------------------------------------------------------------------
 
-@app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    if request.method == "OPTIONS":
-        return await call_next(request)
-    try:
-        await verify_request_auth(request)
-    except HTTPException as exc:
-        return _err("AccessDenied", str(exc.detail), exc.status_code)
-    return await call_next(request)
+class _AuthMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive)
+        if request.method == "OPTIONS":
+            await self.app(scope, receive, send)
+            return
+
+        try:
+            await verify_request_auth(request)
+        except HTTPException as exc:
+            response = _err("AccessDenied", str(exc.detail), exc.status_code)
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(_AuthMiddleware)
 
 
 # ---------------------------------------------------------------------------
