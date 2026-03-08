@@ -371,8 +371,7 @@ async def _handle_delete_objects(bucket: str, request: Request) -> Response:
 # ---------------------------------------------------------------------------
 
 async def _handle_put_object(bucket: str, key: str, request: Request) -> Response:
-    if not storage.bucket_exists(bucket):
-        return _err("NoSuchBucket", "The specified bucket does not exist.", 404, f"/{bucket}")
+    storage.create_bucket(bucket)  # auto-create bucket on write
 
     # Parse content-md5 header (base64 encoded, optional)
     provided_md5: Optional[bytes] = None
@@ -486,8 +485,7 @@ def _handle_delete_object(bucket: str, key: str) -> Response:
 # ---------------------------------------------------------------------------
 
 def _handle_initiate_multipart(bucket: str, key: str, request: Request) -> Response:
-    if not storage.bucket_exists(bucket):
-        return _err("NoSuchBucket", "The specified bucket does not exist.", 404, f"/{bucket}/{key}")
+    storage.create_bucket(bucket)  # auto-create bucket on write
     meta = ObjectMetadata(
         content_type=request.headers.get("content-type", "application/octet-stream"),
         content_disposition=request.headers.get("content-disposition"),

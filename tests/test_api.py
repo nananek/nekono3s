@@ -100,6 +100,16 @@ def test_put_and_get_object(s3):
     assert r.content == b"world"
 
 
+def test_put_auto_creates_bucket(s3):
+    """バケットを事前に作成しなくても PUT Object が成功する。"""
+    r = s3.put("/auto-bucket/file.txt", body=b"auto")
+    assert r.status_code == 200
+    r = s3.get("/auto-bucket/file.txt")
+    assert r.content == b"auto"
+    # バケットも存在する
+    assert s3.head("/auto-bucket").status_code == 200
+
+
 def test_put_returns_etag(s3):
     s3.put("/etag")
     r = s3.put("/etag/f.txt", body=b"data")
